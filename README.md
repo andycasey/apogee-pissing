@@ -15,5 +15,3 @@ And probably:
 - Kevin C. Schlaufman (Carnegie)
 - Gerry Gilmore (Cambridge)
 - Alex Heger (Monash)
-
-
