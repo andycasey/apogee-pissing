@@ -3,12 +3,13 @@
 Calculate odd/even abundances for all stars and look for PISN signature.
 """
 import matplotlib
-matplotlib.rcParams["text.usetex"] = True
+#matplotlib.rcParams["text.usetex"] = True
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 from six import string_types
+from six.moves import cPickle as pickle
 
 np.random.seed(123)
 
@@ -41,11 +42,11 @@ def atomic_number(element):
 
 def plot_atomic_number_abundances(apogee_rows, 
     comparison_stars=None, N_comparisons=100, wrt="H", cmap="terrain", 
+    label_fmt="{0}_H",
     text_offset=None, scatter_kwargs=None, line_kwargs=None, **kwargs):
     """
     Plot the atomic number abundances for a given APOGEE ID.
     """
-
 
     wrt = wrt.upper()
     if wrt not in ("H", "FE"):
@@ -100,9 +101,11 @@ def plot_atomic_number_abundances(apogee_rows,
         for element in elements])
     for i, apogee_row in enumerate(apogee_rows):
 
-        offset = 0 if wrt == "H" else apogee_row["FE_H"]
+        offset = 0 if wrt == "H" else apogee_row[label_fmt.format("FE")]
         for j, element in enumerate(elements):
-            abundances[i, j] = apogee_row["{0}_H".format(element)] - offset
+            abundances[i, j] = apogee_row[label_fmt.format(element)] - offset
+
+        abundances[abundances < -100] = np.nan
 
         # Scatter dem points.
         kwds = {
@@ -143,10 +146,12 @@ def plot_atomic_number_abundances(apogee_rows,
             if comparison_row["APOGEE_ID"] in list(apogee_rows["APOGEE_ID"]):
                 continue
 
-            offset = 0 if wrt == "H" else comparison_row["FE_H"]
+            offset = 0 if wrt == "H" else comparison_row[label_fmt.format("FE")]
             abundances = np.ones_like(Z, dtype=float)
             for j, element in enumerate(elements):
-                abundances[j] = comparison_row["{0}_H".format(element)] - offset
+                abundances[j] = comparison_row[label_fmt.format(element)] - offset
+
+            abundances[abundances < -1000] = np.nan
 
             # Draw lines for sequential atomic abundances.
             kwds = {
@@ -214,13 +219,82 @@ def select_comparison_star(pisn_candidate, apogee_catalog):
     return (apogee_catalog[index], index)
 
 
+def plot_model_spectra(model, dispersion, pisn_candidate, comparison_star):
 
-def plot_pisn_candidate_spectra(dispersion, pisn_candidate, comparison_star):
+    pisn_prediction \
+        = model.predict(model.get_labels_array(pisn_candidate)).flatten()
+    comp_prediction \
+        = model.predict(model.get_labels_array(comparison_star)).flatten()
+
+    fig, ax = plt.subplots()
+
+
+    ax.plot(dispersion, pisn_prediction, c='b')
+    ax.plot(dispersion, comp_prediction, c='k')
+
+    ax.set_title("model")
+
+
+
+
+
+def plot_pisn_candidate_spectra(dispersion, pisn_candidate, comparison_star,
+    atomic_lines=None):
     """
     Plot a comparison star.
     """
 
-    fig, ax = plt.subplots(1, 3) # 3 spectra 
+    atomic_lines = atomic_lines or {}
+
+    comparison_color = "k"
+    pisn_color = "b"
+
+    fig, (ax_residual, ax_spectrum) = plt.subplots(2, 1, sharex=True)
+
+    pisn_flux, pisn_ivar = pisn_candidate
+    comp_flux, comp_ivar = comparison_star
+
+    pisn_sigma = 1.0/np.sqrt(pisn_ivar)
+    comp_sigma = 1.0/np.sqrt(comp_ivar)
+    residual_sigma = np.sqrt(pisn_sigma**2 + comp_sigma**2)
+
+    # Draw the flux
+    ax_spectrum.plot(dispersion, comp_flux,
+        c=comparison_color, drawstyle="default")
+    ax_spectrum.plot(dispersion, pisn_flux,
+        c=pisn_color, drawstyle="default")
+
+    # Labels, limits and looks.
+    ax_spectrum.set_xlim(dispersion[0], dispersion[-1])
+    ax_spectrum.set_ylim(0.7, 1.2)
+
+    # Draw the residuals.
+    residual = (pisn_flux - comp_flux)
+    weighted_residual = residual
+    ax_residual.plot(dispersion, residual, c=pisn_color,
+        drawstyle="default")
+    ax_residual.fill_between(dispersion, 
+        residual - residual_sigma, residual + residual_sigma,
+        color=pisn_color, alpha=0.1)
+
+    ax_residual.set_xlim(dispersion[0], dispersion[-1])
+    ax_residual.set_ylim(-0.1, +0.1)
+
+    # Highlight known lines at particular wavelengths.
+    for element, wavelengths in atomic_lines.items():
+        if element != "Al": continue
+        ax_spectrum.set_xlim(wavelengths[0] - 15, wavelengths[0] + 15)
+        ax_spectrum.axvline(wavelengths[0])
+
+        print(element)
+        raise a
+    raise a
+
+
+
+
+
+
     raise a
 
 
@@ -236,7 +310,7 @@ def misc_plots():
     ax.set_ylim(ax.get_ylim()[::-1])
 
 
-    # Positions
+    # positions
     fig, ax = plt.subplots()
     ax.scatter(apogee_rows["RA"], apogee_rows["DEC"], c=colors)
     ax.set_xlabel("RA")
@@ -308,21 +382,59 @@ if __name__ == "__main__":
     sort_indices = np.argsort(y)[::-1]
 
 
+    """
     fig, ax = plt.subplots()
     ax.scatter(data["FE_H"], y, facecolor="#666666")
     ax.scatter(
         data["FE_H"][sort_indices[:N]],
         y[sort_indices[:N]],
         c=colors, s=100)
+    
 
+    plot_atomic_number_abundances(data[sort_indices[:N]], wrt="H", 
+        cmap="Set2",
+        comparison_stars=data, N_comparisons=500)
+    """
     plot_atomic_number_abundances(data[sort_indices[:N]], wrt="Fe", 
         cmap="Set2",
-        comparison_stars=data, N_comparisons=100)
+        comparison_stars=data, N_comparisons=500)
+    
+    atomic_lines = {
+        "Mg": [15770.107823467057, 15883.838750072413],
+        "Al": [16723.524113765838, 16767.938194147067],
+        "Si": [15964.42366396639, 16064.396850911658],
+        "Ca": [16155.17553813612, 16159.649754913306],
+        "Cr": [15684.347503529489, 15864.547504173868],
+        "Co": [16762.27765450469],
+        "V": [15928.350854428922],
+        "Ni": [16593.826837590106, 16678.26580389432],
+        "K": [15167.21089680259, 15172.521340566429],
+        "Mn": [15221.158563809242, 15266.17080169663]
+    }
+
+    dispersion = np.memmap("../apogee/apogee-rg-dispersion.memmap", mode="c",
+        dtype=float)
+
+
+
+    #import AnniesLasso as tc
+    #model = tc.load_model("../AnniesLasso/gridsearch-unregularized.model")
 
     apogee_ids = []
     comparison_star_indices = []
-    for pisn_candidate in data[sort_indices[:N]]:
+    for pisn_candidate in data[sort_indices[:N]][1:]:
         comparison_star, index = select_comparison_star(pisn_candidate, data)
+
+
+        #plot_model_spectra(model, dispersion, pisn_candidate, comparison_star)
+
+
+        # Load the relevant spectra.
+        with open("data/{0}_stacked.pkl".format(pisn_candidate["APOGEE_ID"]), "rb") as fp:
+            pisn_candidate_spectrum = pickle.load(fp)
+
+        with open("data/{0}_stacked.pkl".format(comparison_star["APOGEE_ID"]), "rb") as fp:
+            comparison_star_spectrum = pickle.load(fp)
 
         print("--")
         for star in (pisn_candidate, comparison_star):
@@ -330,6 +442,17 @@ if __name__ == "__main__":
                 star["APOGEE_ID"], star["TEFF"], star["LOGG"], star["FE_H"],
                 star["even_odd"]))
         print("--")
+
+
+        plot_pisn_candidate_spectra(dispersion,
+            pisn_candidate_spectrum,
+            comparison_star_spectrum,
+            atomic_lines=atomic_lines)
+
+
+        raise a
+
+
         apogee_ids.append(pisn_candidate["APOGEE_ID"])
         apogee_ids.append(comparison_star["APOGEE_ID"])
 
